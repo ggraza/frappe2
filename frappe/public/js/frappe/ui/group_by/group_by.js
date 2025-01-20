@@ -229,7 +229,7 @@ frappe.ui.GroupBy = class {
 		this.page.wrapper.find(".sort-selector").before(
 			$(`<div class="group-by-selector">
 				<button class="btn btn-default btn-sm group-by-button ellipsis">
-					<span class="group-by-icon">
+					<span class="group-by-icon button-icon">
 						${frappe.utils.icon("es-line-folder-alt")}
 					</span>
 					<span class="button-label hidden-xs">
@@ -327,6 +327,9 @@ frappe.ui.GroupBy = class {
 			if (this.aggregate_function === "sum") {
 				docfield.label = __("Sum of {0}", [__(docfield.label, null, docfield.parent)]);
 			} else {
+				if (docfield.fieldtype == "Int") {
+					docfield.fieldtype = "Float"; // average of ints can be a float
+				}
 				docfield.label = __("Average of {0}", [__(docfield.label, null, docfield.parent)]);
 			}
 		}

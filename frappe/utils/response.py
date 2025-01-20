@@ -7,6 +7,8 @@ import json
 import mimetypes
 import os
 import sys
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -217,19 +219,29 @@ def json_handler(obj):
 	elif isinstance(obj, LocalProxy):
 		return str(obj)
 
-	elif isinstance(obj, frappe.model.document.BaseDocument):
-		return obj.as_dict(no_nulls=True)
+	elif hasattr(obj, "__json__"):
+		return obj.__json__()
+
 	elif isinstance(obj, Iterable):
 		return list(obj)
 
 	elif isinstance(obj, Match):
 		return obj.string
 
-	elif type(obj) == type or isinstance(obj, Exception):
+	elif type(obj) is type or isinstance(obj, Exception):
 		return repr(obj)
 
 	elif callable(obj):
 		return repr(obj)
+
+	elif isinstance(obj, uuid.UUID):
+		return str(obj)
+
+	elif isinstance(obj, Path):
+		return str(obj)
+
+	elif hasattr(obj, "__value__"):  # order imporant: defer to __json__ if implemented
+		return obj.__value__()
 
 	else:
 		raise TypeError(f"""Object of type {type(obj)} with value of {obj!r} is not JSON serializable""")
@@ -281,6 +293,7 @@ def send_private_file(path: str) -> Response:
 		path = "/protected/" + path
 		response = Response()
 		response.headers["X-Accel-Redirect"] = quote(frappe.utils.encode(path))
+		response.headers["Cache-Control"] = "private,max-age=3600,stale-while-revalidate=86400"
 
 	else:
 		filepath = frappe.utils.get_site_path(path)
