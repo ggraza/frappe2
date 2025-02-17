@@ -34,6 +34,7 @@ class WebForm(WebsiteGenerator):
 		allow_incomplete: DF.Check
 		allow_multiple: DF.Check
 		allow_print: DF.Check
+		allowed_embedding_domains: DF.SmallText | None
 		anonymous: DF.Check
 		apply_document_permissions: DF.Check
 		banner_image: DF.AttachImage | None
@@ -43,6 +44,8 @@ class WebForm(WebsiteGenerator):
 		condition_json: DF.JSON | None
 		custom_css: DF.Code | None
 		doc_type: DF.Link
+		hide_footer: DF.Check
+		hide_navbar: DF.Check
 		introduction_text: DF.TextEditor | None
 		is_standard: DF.Check
 		list_columns: DF.Table[WebFormListColumn]
@@ -256,7 +259,7 @@ def get_context(context):
 			description = self.introduction_text[:140]
 
 		context.metatags = {
-			"name": self.meta_title or self.title,
+			"title": self.meta_title or self.title,
 			"description": description,
 			"image": self.meta_image,
 		}
@@ -265,6 +268,21 @@ def get_context(context):
 		messages = [
 			"Sr",
 			"Attach",
+			"Next",
+			"Previous",
+			"Discard?",
+			"Cancel",
+			"Discard:Button in web form",
+			"Edit:Button in web form",
+			"See previous responses:Button in web form",
+			"Edit your response:Button in web form",
+			"Are you sure you want to discard the changes?",
+			"Mandatory fields required::Error message in web form",
+			"Invalid values for fields::Error message in web form",
+			"Error:Title of error message in web form",
+			"Page {0} of {1}",
+			"Couldn't save, please check the data you have entered",
+			"Validation Error",
 			self.title,
 			self.introduction_text,
 			self.success_title,
@@ -279,6 +297,52 @@ def get_context(context):
 			messages.extend([field.label, field.description])
 			if field.fieldtype == "Select" and field.options:
 				messages.extend(field.options.split("\n"))
+
+		# When at least one field in self.web_form_fields has fieldtype "Table" then add "No data" to messages
+		if any(field.fieldtype == "Table" for field in self.web_form_fields):
+			messages.append("Move")
+			messages.append("Insert Above")
+			messages.append("Insert Below")
+			messages.append("Duplicate")
+			messages.append("Shortcuts")
+			messages.append("Ctrl + Up")
+			messages.append("Ctrl + Down")
+			messages.append("ESC")
+			messages.append("Editing Row")
+			messages.append("Add / Remove Columns")
+			messages.append("Fieldname")
+			messages.append("Column Width")
+			messages.append("Configure Columns")
+			messages.append("Select Fields")
+			messages.append("Select All")
+			messages.append("Update")
+			messages.append("Reset to default")
+			messages.append("No Data")
+			messages.append("Delete")
+			messages.append("Delete All")
+			messages.append("Add Row")
+			messages.append("Add Multiple")
+			messages.append("Download")
+			messages.append("of")
+			messages.append("Upload")
+			messages.append("Last")
+			messages.append("First")
+			messages.append("No.:Title of the 'row number' column")
+
+		# Phone Picker
+		if any(field.fieldtype == "Phone" for field in self.web_form_fields):
+			messages.append("Search for countries...")
+
+		# Dates
+		if any(field.fieldtype == "Date" for field in self.web_form_fields):
+			messages.append("Now")
+			messages.append("Today")
+			messages.append("Date {0} must be in format: {1}")
+			messages.append("{0} to {1}")
+
+		# Time
+		if any(field.fieldtype == "Time" for field in self.web_form_fields):
+			messages.append("Now")
 
 		messages.extend(col.get("label") if col else "" for col in self.list_columns)
 
@@ -652,51 +716,33 @@ def get_in_list_view_fields(doctype):
 	return [get_field_df(f) for f in fields]
 
 
-@frappe.whitelist(allow_guest=True)
 def get_link_options(web_form_name, doctype, allow_read_on_all_link_options=False):
-	web_form_doc = frappe.get_doc("Web Form", web_form_name)
-	doctype_validated = False
-	limited_to_user = False
-	if web_form_doc.login_required:
-		# check if frappe session user is not guest or admin
-		if frappe.session.user != "Guest":
-			doctype_validated = True
+	web_form: WebForm = frappe.get_doc("Web Form", web_form_name)
 
-			if not allow_read_on_all_link_options:
-				limited_to_user = True
-		else:
-			frappe.throw(_("You must be logged in to use this form."), frappe.PermissionError)
+	if web_form.login_required and frappe.session.user == "Guest":
+		frappe.throw(_("You must be logged in to use this form."), frappe.PermissionError)
 
-	else:
-		for field in web_form_doc.web_form_fields:
-			if field.options == doctype:
-				doctype_validated = True
-				break
-
-	if doctype_validated:
-		link_options, filters = [], {}
-
-		if limited_to_user:
-			filters = {"owner": frappe.session.user}
-
-		fields = ["name as value"]
-
-		meta = frappe.get_meta(doctype)
-
-		if meta.title_field and meta.show_title_field_in_link:
-			fields.append(f"{meta.title_field} as label")
-
-		link_options = frappe.get_all(doctype, filters, fields)
-
-		if meta.title_field and meta.show_title_field_in_link:
-			return json.dumps(link_options, default=str)
-		else:
-			return "\n".join([str(doc.value) for doc in link_options])
-
-	else:
-		raise frappe.PermissionError(
-			_("You don't have permission to access the {0} DocType.").format(doctype)
+	if not web_form.published or not any(f for f in web_form.web_form_fields if f.options == doctype):
+		frappe.throw(
+			_("You don't have permission to access the {0} DocType.").format(doctype), frappe.PermissionError
 		)
+
+	link_options, filters = [], {}
+	if web_form.login_required and not allow_read_on_all_link_options:
+		filters = {"owner": frappe.session.user}
+
+	fields = ["name as value"]
+
+	meta = frappe.get_meta(doctype)
+	if meta.title_field and meta.show_title_field_in_link:
+		fields.append(f"{meta.title_field} as label")
+
+	link_options = frappe.get_all(doctype, filters, fields)
+
+	if meta.title_field and meta.show_title_field_in_link:
+		return json.dumps(link_options, default=str)
+	else:
+		return "\n".join([str(doc.value) for doc in link_options])
 
 
 @redis_cache(ttl=60 * 60)

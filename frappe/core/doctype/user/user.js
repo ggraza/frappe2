@@ -1,4 +1,14 @@
 frappe.ui.form.on("User", {
+	setup: function (frm) {
+		frm.set_query("default_workspace", () => {
+			return {
+				filters: {
+					for_user: ["in", [null, frappe.session.user]],
+					title: ["!=", "Welcome Workspace"],
+				},
+			};
+		});
+	},
 	before_load: function (frm) {
 		let update_tz_options = function () {
 			frm.fields_dict.time_zone.set_data(frappe.all_timezones);
@@ -93,6 +103,11 @@ frappe.ui.form.on("User", {
 	refresh: function (frm) {
 		let doc = frm.doc;
 
+		frappe.xcall("frappe.apps.get_apps").then((r) => {
+			let apps = r?.map((r) => r.name) || [];
+			frm.set_df_property("default_app", "options", [" ", ...apps]);
+		});
+
 		if (frm.is_new()) {
 			frm.set_value("time_zone", frappe.sys_defaults.time_zone);
 		}
@@ -127,6 +142,15 @@ frappe.ui.form.on("User", {
 					__("View Permitted Documents"),
 					() =>
 						frappe.set_route("query-report", "Permitted Documents For User", {
+							user: frm.doc.name,
+						}),
+					__("Permissions")
+				);
+
+				frm.add_custom_button(
+					__("View Doctype Permissions"),
+					() =>
+						frappe.set_route("query-report", "User Doctype Permissions", {
 							user: frm.doc.name,
 						}),
 					__("Permissions")
@@ -244,6 +268,10 @@ frappe.ui.form.on("User", {
 			}
 			if (!found) {
 				frm.add_custom_button(__("Create User Email"), function () {
+					if (!frm.doc.email) {
+						frappe.msgprint(__("Email is mandatory to create User Email"));
+						return;
+					}
 					frm.events.create_user_email(frm);
 				});
 			}
@@ -270,7 +298,7 @@ frappe.ui.form.on("User", {
 			frm.set_df_property("enabled", "read_only", 0);
 		}
 
-		if (frappe.session.user !== "Administrator") {
+		if (frm.doc.name !== "Administrator") {
 			frm.toggle_enable("email", frm.is_new());
 		}
 	},
@@ -342,7 +370,11 @@ frappe.ui.form.on("User", {
 		}
 	},
 	setup_impersonation: function (frm) {
-		if (frappe.session.user === "Administrator" && frm.doc.name != "Administrator") {
+		if (
+			frappe.session.user === "Administrator" &&
+			frm.doc.name != "Administrator" &&
+			!frm.is_new()
+		) {
 			frm.add_custom_button(__("Impersonate"), () => {
 				if (frm.doc.restrict_ip) {
 					frappe.msgprint({

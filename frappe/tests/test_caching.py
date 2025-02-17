@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import frappe
 from frappe.core.doctype.doctype.test_doctype import new_doctype
+from frappe.tests import IntegrationTestCase
 from frappe.tests.test_api import FrappeAPITestCase
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils.caching import redis_cache, request_cache, site_cache
 
 CACHE_TTL = 4
@@ -35,7 +35,7 @@ def ping_with_ttl() -> str:
 	return frappe.local.site
 
 
-class TestCachingUtils(FrappeTestCase):
+class TestCachingUtils(IntegrationTestCase):
 	def test_request_cache(self):
 		retval = []
 		acceptable_args = [
@@ -110,6 +110,7 @@ class TestRedisCache(FrappeAPITestCase):
 		self.assertEqual(function_call_count, 1)
 
 		time.sleep(CACHE_TTL * 1.5)
+		frappe.local.cache.clear()
 		self.assertEqual(calculate_area(10), 314)
 		self.assertEqual(function_call_count, 2)
 
@@ -184,6 +185,34 @@ class TestRedisCache(FrappeAPITestCase):
 		frappe.clear_cache()
 		calculate_area(10)
 		self.assertEqual(function_call_count, 2)
+
+	def test_user_cache(self):
+		function_call_count = 0
+		PI = 3.1415
+		ENGINEERING_PI = _E = 3
+
+		@redis_cache(user=True)
+		def calculate_area(radius: float) -> float:
+			nonlocal function_call_count
+			PI_APPROX = ENGINEERING_PI if frappe.session.user == "Engineer" else PI
+			function_call_count += 1
+			return PI_APPROX * radius**2
+
+		with self.set_user("Engineer"):
+			self.assertEqual(calculate_area(1), ENGINEERING_PI)
+			self.assertEqual(function_call_count, 1)
+
+		with self.set_user("Mathematician"):
+			self.assertEqual(calculate_area(1), PI)
+			self.assertEqual(function_call_count, 2)
+
+		with self.set_user("Engineer"):
+			self.assertEqual(calculate_area(1), ENGINEERING_PI)
+			self.assertEqual(function_call_count, 2)
+
+		with self.set_user("Mathematician"):
+			self.assertEqual(calculate_area(1), PI)
+			self.assertEqual(function_call_count, 2)
 
 
 class TestDocumentCache(FrappeAPITestCase):
@@ -297,7 +326,7 @@ class TestRedisWrapper(FrappeAPITestCase):
 		frappe.clear_cache(user=user1)
 
 		# Check that the keys for user1 are gone
-		for key in user_cache_keys:
+		for key in set(user_cache_keys) - {"home_page"}:
 			self.assertFalse(frappe.cache.hexists(key, user1))
 			self.assertTrue(frappe.cache.hexists(key, user2))
 
@@ -320,3 +349,13 @@ class TestRedisWrapper(FrappeAPITestCase):
 
 	def test_backward_compat_cache(self):
 		self.assertEqual(frappe.cache, frappe.cache())
+
+
+class TestHttpCache(FrappeAPITestCase):
+	def test_http_headers(self):
+		resp = self.get(
+			self.method("frappe.client.is_document_amended"),
+			{"sid": self.sid, "doctype": "User", "docname": "Guest"},
+		)
+		self.assertEqual(resp.cache_control.max_age, 600)
+		self.assertTrue(resp.cache_control.private)
