@@ -117,12 +117,8 @@ def search_widget(
 	meta = frappe.get_meta(doctype)
 
 	if isinstance(filters, dict):
-		filters_items = filters.items()
-		filters = []
-		for key, value in filters_items:
-			filters.append(make_filter_tuple(doctype, key, value))
-
-	if filters is None:
+		filters = [make_filter_tuple(doctype, key, value) for key, value in filters.items()]
+	elif filters is None:
 		filters = []
 	or_filters = []
 
@@ -162,7 +158,7 @@ def search_widget(
 	formatted_fields = [f"`tab{meta.name}`.`{f.strip()}`" for f in fields]
 
 	# Insert title field query after name
-	if meta.show_title_field_in_link:
+	if meta.show_title_field_in_link and meta.title_field:
 		formatted_fields.insert(1, f"`tab{meta.name}`.{meta.title_field} as `label`")
 
 	order_by_based_on_meta = get_order_by(doctype, meta)
@@ -260,12 +256,20 @@ def build_for_autosuggest(res: list[tuple], doctype: str) -> list[LinkSearchResu
 	if meta.show_title_field_in_link:
 		for item in res:
 			item = list(item)
+			if len(item) == 1:
+				item = [item[0], item[0]]
 			label = item[1]  # use title as label
 			item[1] = item[0]  # show name in description instead of title
+
 			if len(item) >= 3 and item[2] == label:
 				# remove redundant title ("label") value
 				del item[2]
-			results.append({"value": item[0], "label": label, "description": to_string(item[1:])})
+
+			autosuggest_row = {"value": item[0], "description": to_string(item[1:])}
+			if label:
+				autosuggest_row["label"] = label
+
+			results.append(autosuggest_row)
 	else:
 		results.extend({"value": item[0], "description": to_string(item[1:])} for item in res)
 

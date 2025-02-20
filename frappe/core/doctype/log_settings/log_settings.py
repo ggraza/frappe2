@@ -16,8 +16,7 @@ class LogType(Protocol):
 	"""Interface requirement for doctypes that can be cleared using log settings."""
 
 	@staticmethod
-	def clear_old_logs(days: int) -> None:
-		...
+	def clear_old_logs(days: int) -> None: ...
 
 
 @site_cache
@@ -181,7 +180,7 @@ def clear_log_table(doctype, days=90):
 		frappe.db.sql(
 			f"""INSERT INTO `{temporary}`
 				SELECT * FROM `{original}`
-				WHERE `{original}`.`modified` > NOW() - INTERVAL '{days}' DAY"""
+				WHERE `{original}`.`creation` > NOW() - INTERVAL '{days}' DAY"""
 		)
 		frappe.db.sql_ddl(f"RENAME TABLE `{original}` TO `{backup}`, `{temporary}` TO `{original}`")
 	except Exception:
